@@ -298,9 +298,11 @@ func processTable() -> [Int: ProcEntry] {
         // the command is a path and may contain spaces, so only split off the first three
         let fields = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
         guard fields.count >= 4, let pid = Int(fields[0]), let ppid = Int(fields[1]) else { continue }
+        // split stops at maxSplits and hands back the rest verbatim, padding
+        // included — an untrimmed path is read as relative and resolves nowhere
         table[pid] = ProcEntry(ppid: ppid,
                                tty: fields[2] == "??" ? "" : String(fields[2]),
-                               command: String(fields[3]))
+                               command: fields[3].trimmingCharacters(in: .whitespaces))
     }
     return table
 }
@@ -312,7 +314,12 @@ func owningApp(_ pid: Int, _ table: [Int: ProcEntry]) -> URL? {
     for _ in 0..<12 {
         guard let entry = table[current] else { return nil }
         if let r = entry.command.range(of: ".app/Contents/MacOS/") {
-            return URL(fileURLWithPath: String(entry.command[..<r.lowerBound]) + ".app")
+            let bundle = String(entry.command[..<r.lowerBound]) + ".app"
+            // never hand Launch Services something that isn't there
+            if bundle.hasPrefix("/"), FileManager.default.fileExists(atPath: bundle) {
+                return URL(fileURLWithPath: bundle)
+            }
+            return nil
         }
         current = entry.ppid
         if current <= 1 { return nil }
