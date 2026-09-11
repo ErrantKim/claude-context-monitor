@@ -25,8 +25,9 @@ Shows how full each running session's context window is, how much of your
 | `◌1` | 1 more session whose busy/idle state is unknown |
 | `7d 42%` | weekly limit used |
 
-Each session has a submenu to copy its id or `claude --resume` command, open its
-working directory, or reveal its transcript.
+Clicking a session brings it to the front: iTerm2 and Terminal.app can select
+the exact tab, and anything else raises the application running it. Hold ⌥ for
+per-session details — ids, cost, and commands to copy.
 
 ## Requirements
 

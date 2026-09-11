@@ -32,6 +32,8 @@ struct Session {
     var costUSD: Double = 0
     var tty: String = ""
     var entrypoint: String = ""
+    var ownerApp: URL?
+    var ownerBundleId: String?
     // Only the CLI writes a status field; other front-ends register without one,
     // so their busy/idle state is genuinely unknown rather than idle.
     var hasStatus = false
@@ -226,25 +228,96 @@ func registryStatuses() -> [String: (status: String, updatedAt: Date?)] {
     return out
 }
 
+// MARK: - Bringing a session to the front
+
+// iTerm2 and Terminal.app can be asked to select the tab on a given tty. For
+// anything else the best available answer is to raise its application.
+func revealScript(bundleId: String?, tty: String) -> String? {
+    guard !tty.isEmpty else { return nil }
+    switch bundleId {
+    case "com.googlecode.iterm2":
+        return """
+        tell application id "com.googlecode.iterm2"
+          repeat with w in windows
+            repeat with t in tabs of w
+              repeat with s in sessions of t
+                if tty of s is "/dev/\(tty)" then
+                  select w
+                  select t
+                  select s
+                  activate
+                  return "ok"
+                end if
+              end repeat
+            end repeat
+          end repeat
+        end tell
+        return "missing"
+        """
+    case "com.apple.Terminal":
+        return """
+        tell application id "com.apple.Terminal"
+          repeat with w in windows
+            repeat with t in tabs of w
+              if tty of t is "/dev/\(tty)" then
+                set selected tab of w to t
+                set index of w to 1
+                activate
+                return "ok"
+              end if
+            end repeat
+          end repeat
+        end tell
+        return "missing"
+        """
+    default:
+        return nil
+    }
+}
+
 // MARK: - Focus tracking
 
-func ttyMap() -> [Int: String] {
+struct ProcEntry {
+    var ppid = 0
+    var tty = ""
+    var command = ""
+}
+
+func processTable() -> [Int: ProcEntry] {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/ps")
-    p.arguments = ["-Ao", "pid=,tty="]
+    p.arguments = ["-Ao", "pid=,ppid=,tty=,comm="]
     let pipe = Pipe()
     p.standardOutput = pipe
     guard (try? p.run()) != nil else { return [:] }
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     p.waitUntilExit()
 
-    var map: [Int: String] = [:]
+    var table: [Int: ProcEntry] = [:]
     for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
-        let f = line.split(separator: " ", omittingEmptySubsequences: true)
-        guard f.count >= 2, let pid = Int(f[0]), f[1] != "??" else { continue }
-        map[pid] = String(f[1])
+        // the command is a path and may contain spaces, so only split off the first three
+        let fields = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+        guard fields.count >= 4, let pid = Int(fields[0]), let ppid = Int(fields[1]) else { continue }
+        table[pid] = ProcEntry(ppid: ppid,
+                               tty: fields[2] == "??" ? "" : String(fields[2]),
+                               command: String(fields[3]))
     }
-    return map
+    return table
+}
+
+// Walks up from the session process until something living in an .app bundle
+// turns up: the terminal hosting it, or the desktop app running it directly.
+func owningApp(_ pid: Int, _ table: [Int: ProcEntry]) -> URL? {
+    var current = pid
+    for _ in 0..<12 {
+        guard let entry = table[current] else { return nil }
+        if let r = entry.command.range(of: ".app/Contents/MacOS/") {
+            return URL(fileURLWithPath: String(entry.command[..<r.lowerBound]) + ".app")
+        }
+        current = entry.ppid
+        if current <= 1 { return nil }
+    }
+    return nil
 }
 
 // Apple Events are the only way to learn which tab is in front; nothing on disk
@@ -272,7 +345,7 @@ func collect() -> [Session] {
     guard let files = try? fm.contentsOfDirectory(at: sessionsURL, includingPropertiesForKeys: nil)
     else { return [] }
 
-    let ttys = ttyMap()
+    let table = processTable()
     var byId: [String: Session] = [:]
     for file in files where file.pathExtension == "json" {
         guard let data = try? Data(contentsOf: file),
@@ -290,7 +363,9 @@ func collect() -> [Session] {
             version: o["version"] as? String ?? "",
             updatedAt: (o["updatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
         )
-        s.tty = ttys[pid] ?? ""
+        s.tty = table[pid]?.tty ?? ""
+        s.ownerApp = owningApp(pid, table)
+        s.ownerBundleId = s.ownerApp.flatMap { Bundle(url: $0)?.bundleIdentifier }
         s.entrypoint = o["entrypoint"] as? String ?? "cli"
         s.hasStatus = !s.status.isEmpty
         s.transcript = transcriptURL(sid)
@@ -876,11 +951,27 @@ final class Controller: NSObject, NSMenuDelegate {
         }
 
         for s in sessions {
-            let mi = NSMenuItem()
+            let mi = NSMenuItem(title: "", action: #selector(revealSession(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = s.sessionId
             mi.attributedTitle = row(for: s)
-            mi.submenu = submenu(for: s)
+            mi.isEnabled = s.ownerApp != nil
             menu.addItem(mi)
+
+            // Option swaps the row for its details, since a row cannot both act
+            // and open a submenu.
+            let alt = NSMenuItem()
+            alt.attributedTitle = row(for: s)
+            alt.submenu = submenu(for: s)
+            alt.isAlternate = true
+            alt.keyEquivalentModifierMask = .option
+            menu.addItem(alt)
         }
+
+        let hint = NSMenuItem()
+        hint.attributedTitle = mono("   click to reveal · ⌥ for details", size: 10, color: .tertiaryLabelColor)
+        hint.isEnabled = false
+        menu.addItem(hint)
 
         menu.addItem(.separator())
 
@@ -975,6 +1066,24 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     // MARK: actions
+
+    @objc private func revealSession(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let s = sessions.first(where: { $0.sessionId == id }) else { return }
+        focusQueue.async {
+            if let source = revealScript(bundleId: s.ownerBundleId, tty: s.tty),
+               let script = NSAppleScript(source: source) {
+                var err: NSDictionary?
+                let result = script.executeAndReturnError(&err)
+                if err == nil, result.stringValue == "ok" { return }
+            }
+            // no way to address the tab — raising the owning app is the best left
+            guard let app = s.ownerApp else { return }
+            DispatchQueue.main.async {
+                NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+            }
+        }
+    }
 
     @objc private func refreshNow() { refresh() }
 
