@@ -37,9 +37,14 @@ working directory, or reveal its transcript.
 ## Install
 
 ```sh
+brew trust --tap ErrantKim/tap
 brew install ErrantKim/tap/claude-context-monitor
 claude-context-monitor-setup
 ```
+
+Homebrew treats every third-party tap as untrusted. It currently only warns,
+but says it will stop allowing untrusted taps in a later release, so the trust
+line is worth running either way.
 
 Or from source:
 

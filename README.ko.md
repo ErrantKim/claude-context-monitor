@@ -36,9 +36,14 @@ transcript 위치 열기를 할 수 있습니다.
 ## 설치
 
 ```sh
+brew trust --tap ErrantKim/tap
 brew install ErrantKim/tap/claude-context-monitor
 claude-context-monitor-setup
 ```
+
+Homebrew는 서드파티 탭을 모두 신뢰하지 않는 것으로 취급합니다. 지금은 경고만 하고
+진행되지만 향후 릴리스에서는 허용하지 않겠다고 안내하므로, 위 신뢰 명령을 함께
+실행해두는 편이 좋습니다.
 
 또는 소스에서:
 
