@@ -32,7 +32,6 @@ struct Session {
     var costUSD: Double = 0
     var tty: String = ""
     var entrypoint: String = ""
-    var isLive = true
     // Only the CLI writes a status field; other front-ends register without one,
     // so their busy/idle state is genuinely unknown rather than idle.
     var hasStatus = false
@@ -97,9 +96,6 @@ struct Facts {
     var tokens = 0
     var modelId: String?
     var modelName: String?
-    var entrypoint = ""
-    var title = ""
-    var cwd = ""
 }
 
 func extractModel(_ obj: [String: Any]) -> (String?, String?)? {
@@ -146,39 +142,7 @@ func scanTranscript(_ url: URL) -> Facts {
             f.modelName = name
         }
     }
-    f.entrypoint = stringField(head, "entrypoint") ?? ""
-    f.cwd = stringField(head, "cwd") ?? ""
-    // the session's own generated title, used when no status line snapshot exists
-    for chunk in [readTail(url, tailBytes), head] {
-        var search = chunk.startIndex
-        while let r = chunk.range(of: "\"aiTitle\":", range: search..<chunk.endIndex) {
-            if let obj = lineAround(chunk, r.lowerBound), let t = obj["aiTitle"] as? String, !t.isEmpty {
-                f.title = t
-            }
-            search = r.upperBound
-        }
-        if !f.title.isEmpty { break }
-    }
     return f
-}
-
-// Reads a top-level string value without parsing every record, tolerating the
-// whitespace that a differently-encoded writer might leave around the colon.
-func stringField(_ text: String, _ key: String) -> String? {
-    guard let k = text.range(of: "\"\(key)\"") else { return nil }
-    var i = k.upperBound
-    while i < text.endIndex, text[i] == ":" || text[i] == " " { i = text.index(after: i) }
-    guard i < text.endIndex, text[i] == "\"" else { return nil }
-    let start = text.index(after: i)
-    guard let end = text[start...].firstIndex(of: "\"") else { return nil }
-    return String(text[start..<end])
-}
-
-// Pulls the whole JSONL record that a match sits inside.
-func lineAround(_ text: String, _ index: String.Index) -> [String: Any]? {
-    let start = text[..<index].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
-    let end = text[index...].firstIndex(of: "\n") ?? text.endIndex
-    return jsonObject(text[start..<end])
 }
 
 // The transcript's `model` field drops the [1m] suffix, so the model attachment
@@ -358,48 +322,6 @@ func collect() -> [Session] {
         byId[sid] = s
     }
 
-    // Front-ends that never register a pid — the desktop app runs its copy in a
-    // VM — are only visible through transcript activity. CLI sessions are
-    // deliberately excluded here: the pid registry is authoritative for them, so
-    // a CLI transcript missing from it belongs to a session that has exited.
-    let recentMinutes = UserDefaults.standard.object(forKey: "recentMinutes") as? Int ?? 30
-    let cutoff = Date().addingTimeInterval(-Double(recentMinutes) * 60)
-    if let dirs = try? fm.contentsOfDirectory(at: projectsURL, includingPropertiesForKeys: nil) {
-        for dir in dirs {
-            guard let files = try? fm.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
-            for file in files where file.pathExtension == "jsonl" {
-                guard let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
-                        .contentModificationDate, mtime > cutoff else { continue }
-                let sid = file.deletingPathExtension().lastPathComponent
-                guard byId[sid] == nil else { continue }
-
-                let f = scanTranscript(file)
-                // Fail closed: without a readable entrypoint we cannot tell an
-                // exited CLI session from a live one in another front-end.
-                guard !f.entrypoint.isEmpty, f.entrypoint != "cli",
-                      f.entrypoint != "sdk-cli", f.tokens > 0 else { continue }
-
-                var s = Session(
-                    pid: 0,
-                    sessionId: sid,
-                    cwd: f.cwd,
-                    name: f.title.isEmpty ? String(sid.prefix(8)) : f.title,
-                    status: "",
-                    kind: f.entrypoint,
-                    version: "",
-                    updatedAt: mtime
-                )
-                s.entrypoint = f.entrypoint
-                s.isLive = false
-                s.contextTokens = f.tokens
-                s.contextLimit = contextLimit(f.modelId, observed: f.tokens)
-                s.modelName = f.modelName ?? "unknown"
-                s.transcript = file
-                byId[sid] = s
-            }
-        }
-    }
     return byId.values.sorted { $0.percent > $1.percent }
 }
 
@@ -590,7 +512,7 @@ final class Controller: NSObject, NSMenuDelegate {
     private func statusRefresh() {
         let snapshot = registryStatuses()
         // a session appearing or leaving needs pid, tty and context too
-        guard Set(snapshot.keys) == Set(sessions.filter(\.isLive).map(\.sessionId)) else {
+        guard Set(snapshot.keys) == Set(sessions.map(\.sessionId)) else {
             refresh()
             return
         }
