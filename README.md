@@ -37,14 +37,15 @@ working directory, or reveal its transcript.
 ## Install
 
 ```sh
-brew trust --tap ErrantKim/tap
+brew trust --formula ErrantKim/tap/claude-context-monitor
 brew install ErrantKim/tap/claude-context-monitor
 claude-context-monitor-setup
 ```
 
-Homebrew treats every third-party tap as untrusted. It currently only warns,
-but says it will stop allowing untrusted taps in a later release, so the trust
-line is worth running either way.
+A formula is executable code, so Homebrew requires you to trust anything from a
+third-party tap before it will load it. Trusting the one formula is narrower
+than `brew trust --tap ErrantKim/tap`, which would cover anything the tap ever
+adds.
 
 Or from source:
 
