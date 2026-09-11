@@ -37,12 +37,20 @@ working directory, or reveal its transcript.
 ## Install
 
 ```sh
-git clone <this repo> claude-context-monitor
+brew install ErrantKim/tap/claude-context-monitor
+claude-context-monitor-setup
+```
+
+Or from source:
+
+```sh
+git clone https://github.com/ErrantKim/claude-context-monitor.git
 cd claude-context-monitor
 ./install.sh
 ```
 
-That builds the app, installs it to `~/Applications`, registers it to start at
+Either way it builds from source on your machine, which is also why there is no
+Gatekeeper prompt to click through. The source install builds the app, installs it to `~/Applications`, registers it to start at
 login, and points Claude Code's status line at the collector inside the bundle.
 **The checkout is not needed afterwards** — nothing runs from it.
 
@@ -207,6 +215,7 @@ src/app.swift          the menu bar app
 src/statusline.swift   the status line collector
 build.sh               builds both into build/ClaudeContextMonitor.app
 install.sh             builds, installs, registers at login
+setup.sh               wires an installed app into Claude Code
 uninstall.sh           reverses all of it
 ```
 

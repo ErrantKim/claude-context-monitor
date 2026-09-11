@@ -36,12 +36,20 @@ transcript 위치 열기를 할 수 있습니다.
 ## 설치
 
 ```sh
-git clone <이 저장소> claude-context-monitor
+brew install ErrantKim/tap/claude-context-monitor
+claude-context-monitor-setup
+```
+
+또는 소스에서:
+
+```sh
+git clone https://github.com/ErrantKim/claude-context-monitor.git
 cd claude-context-monitor
 ./install.sh
 ```
 
-앱을 빌드해 `~/Applications`에 설치하고, 로그인 시 자동 실행하도록 등록하며,
+어느 쪽이든 이 맥에서 직접 빌드합니다. 그래서 Gatekeeper 경고를 거칠 일이 없습니다.
+소스 설치는 앱을 빌드해 `~/Applications`에 설치하고, 로그인 시 자동 실행하도록 등록하며,
 Claude Code의 status line을 번들 안의 수집기로 연결합니다.
 **클론한 디렉터리는 설치 후 지워도 됩니다** — 아무것도 그곳에서 실행되지 않습니다.
 
@@ -202,6 +210,7 @@ src/app.swift          메뉴바 앱
 src/statusline.swift   status line 수집기
 build.sh               둘 다 빌드해 build/ClaudeContextMonitor.app 생성
 install.sh             빌드·설치·로그인 등록
+setup.sh               설치된 앱을 Claude Code에 연결
 uninstall.sh           전부 되돌리기
 ```
 
