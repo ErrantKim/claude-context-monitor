@@ -207,6 +207,12 @@ separator; the position is remembered.
 automation access was denied: System Settings → Privacy & Security → Automation.
 Rebuilding changes the ad-hoc signature, so macOS may ask again after an update.
 
+**Clicking a session raises the app but does not switch tabs.** Selecting the
+exact tab goes through Apple Events, and without automation access the click
+falls back to raising the owning application — which is also all it can do for
+an IDE terminal or the desktop app. Grant it in the same place, and expect to be
+asked again after an upgrade, for the same signature reason.
+
 **Limits say "no data yet" or go orange.** They only refresh while a terminal
 session renders its status line. Open one, or accept that desktop-app-only
 usage leaves the last known figures in place.
