@@ -212,16 +212,53 @@ func loadSnapshot(_ sessionId: String) -> Snapshot? {
     )
 }
 
-// Just the busy/idle field, re-read without the cost of a full collect.
-func registryStatuses() -> [String: (status: String, updatedAt: Date?)] {
-    var out: [String: (status: String, updatedAt: Date?)] = [:]
+// A live pid is not enough. A background job's process outlives the session it
+// ran: after /exit, or once the conversation continues in another session, it
+// goes back to the spare pool with its registry file untouched. Spares that were
+// never claimed register too. The transcript records how the session ended.
+func sessionEnded(_ transcript: URL) -> Bool {
+    for line in readTail(transcript, 64 * 1024).split(separator: "\n").reversed() {
+        guard let obj = jsonObject(line) else { continue }
+        switch obj["type"] as? String {
+        case "continued-in":
+            return true
+        case "assistant":
+            return false
+        case "user":
+            let msg = obj["message"] as? [String: Any]
+            let text = msg?["content"] as? String ?? ""
+            if text.contains("<command-name>/exit</command-name>")
+                || text.contains("<command-name>/quit</command-name>") { return true }
+            // the caveat and output around a local command are not a new turn
+            if text.hasPrefix("<local-command-") { continue }
+            return false
+        default:
+            continue
+        }
+    }
+    return false
+}
+
+func registryEntries() -> [(o: [String: Any], pid: Int, sid: String)] {
     guard let files = try? FileManager.default.contentsOfDirectory(
-        at: sessionsURL, includingPropertiesForKeys: nil) else { return out }
+        at: sessionsURL, includingPropertiesForKeys: nil) else { return [] }
+    var out: [(o: [String: Any], pid: Int, sid: String)] = []
     for file in files where file.pathExtension == "json" {
         guard let data = try? Data(contentsOf: file),
               let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let pid = o["pid"] as? Int, processAlive(pid),
-              let sid = o["sessionId"] as? String else { continue }
+              let sid = o["sessionId"] as? String,
+              (o["spare"] as? Bool) != true else { continue }
+        if let t = transcriptURL(sid), sessionEnded(t) { continue }
+        out.append((o, pid, sid))
+    }
+    return out
+}
+
+// Just the busy/idle field, re-read without the cost of a full collect.
+func registryStatuses() -> [String: (status: String, updatedAt: Date?)] {
+    var out: [String: (status: String, updatedAt: Date?)] = [:]
+    for (o, _, sid) in registryEntries() {
         out[sid] = (o["status"] as? String ?? "",
                     (o["updatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) })
     }
@@ -349,17 +386,9 @@ func focusedTTY() -> String? {
 
 func collect() -> [Session] {
     let fm = FileManager.default
-    guard let files = try? fm.contentsOfDirectory(at: sessionsURL, includingPropertiesForKeys: nil)
-    else { return [] }
-
     let table = processTable()
     var byId: [String: Session] = [:]
-    for file in files where file.pathExtension == "json" {
-        guard let data = try? Data(contentsOf: file),
-              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let pid = o["pid"] as? Int, processAlive(pid),
-              let sid = o["sessionId"] as? String else { continue }
-
+    for (o, pid, sid) in registryEntries() {
         var s = Session(
             pid: pid,
             sessionId: sid,

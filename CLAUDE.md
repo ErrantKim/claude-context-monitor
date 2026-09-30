@@ -27,6 +27,13 @@ That could not tell an idle session from an ended one, so a desktop session
 lingered for thirty minutes after its app was quit. Missing a front-end that
 registers nothing is the better failure.
 
+**A registry file with a live pid can still describe an ended session.**
+Background jobs run in pooled processes that outlive their session: after
+`/exit`, or once the conversation `continued-in` another session, the process
+returns to the pool and its file is left as it was. Unclaimed spares register
+with `spare: true`. `registryEntries()` drops both, using the transcript tail as
+the record of how the session ended.
+
 **Report what is known, don't infer.** The CLI writes a `status` field; other
 front-ends do not. A session without one is shown as unknown (`◌`) and left out
 of the busy/idle ratio rather than assumed idle.
