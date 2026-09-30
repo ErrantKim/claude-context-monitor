@@ -137,6 +137,7 @@ macOS가 두 가지 권한을 물어봅니다. 둘 다 선택 사항입니다:
     "cwd": "/Users/you/project",
     "model": "Opus 5 (1M context)",
     "entrypoint": "cli",        // "cli" | "claude-desktop" | …
+    "tty": "ttys003",           // 터미널이 없으면 ""
     "tokens": 912345,
     "window": 1000000
   }

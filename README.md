@@ -141,6 +141,7 @@ It is called once per alert with the message as `$1` and a JSON object on stdin:
     "cwd": "/Users/you/project",
     "model": "Opus 5 (1M context)",
     "entrypoint": "cli",        // "cli" | "claude-desktop" | …
+    "tty": "ttys003",           // "" when it has no terminal
     "tokens": 912345,
     "window": 1000000
   }

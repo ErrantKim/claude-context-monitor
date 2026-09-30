@@ -708,6 +708,7 @@ final class Controller: NSObject, NSMenuDelegate {
                         "cwd": s.cwd,
                         "model": s.modelName,
                         "entrypoint": s.entrypoint,
+                        "tty": s.tty,
                         "tokens": s.contextTokens,
                         "window": s.contextLimit,
                     ],
